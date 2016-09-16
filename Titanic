@@ -1,0 +1,1185 @@
+
+# coding: utf-8
+
+# Analysis Format:
+# 
+# I. Data Preparation    
+#     1. Clean Data       
+#     2. Create Variables 
+#     3. Explore          
+#     4. Split Train - CV - Test  
+# II. Statistical Exploration / Unsupervised Learning
+#     5. Principle Component Analysis (PCA)
+#     6. Clustering
+# III. Stats Models + Supervised Learning
+#     7. Logistic Regression   
+#     8. Tree-Based Models
+#         8a. Decision Tree
+#         8b. Random Forest
+#         8c. Boosting
+#         8d. Adding Extra Random Trees
+# IV. Conclusion with Model Comparion & Prediction Results
+
+# In[1]:
+
+get_ipython().magic('matplotlib inline')
+
+
+# In[2]:
+
+#Coding packages
+import os
+import pandas as pd
+import re 
+import itertools
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pylab as pl
+#solves 'cannot import name signature' error
+import inspect  
+import string
+from IPython.display import display
+
+
+#Data Prep
+from sklearn.cross_validation import train_test_split
+from sklearn.grid_search import GridSearchCV
+
+#Models
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, roc_curve, roc_auc_score, zero_one_loss
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier
+from sklearn import tree
+import sklearn as sc
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+from patsy import dmatrices
+
+#PCA & Clustering
+# from sklearn.datasets import fetch_20newsgroups, load_digits
+from sklearn.feature_extraction.text import TfidfVectorizer
+# these are new imports for dimensionality reduction
+from sklearn.preprocessing import scale
+from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.manifold import TSNE
+# these are new imports for clustering
+from sklearn.cluster import KMeans, MiniBatchKMeans
+from scipy.cluster.hierarchy import linkage, dendrogram
+import sklearn.cluster as cluster
+import time
+import seaborn as sns
+from ggplot import *
+
+
+
+
+
+# # I. Data Preparation
+
+# ## 1. Clean Data
+
+# In[3]:
+
+df = pd.read_csv("titanic_full.csv")
+
+
+# In[4]:
+
+# https://www.kaggle.com/c/titanic/data
+#Rename columns & drop 'body' variable
+df = df.rename(columns={'home.dest': 'homeDest', })
+df = df.drop('body', 1)
+
+
+# ## 2. Create Variables
+
+# In[104]:
+
+#Create variables
+#Letter of Cabins
+#Cabin Letter
+
+# female = 0, Male = 1
+df['gender'] = df['sex'].map( {'female': 0, 'male': 1} ).astype(int)
+
+# All missing Embarked -> just make them embark from most common place
+if len(df.embarked[ df.embarked.isnull() ]) > 0:
+    df.embarked[ df.embarked.isnull() ] = df.embarked.dropna().mode().values
+
+#View
+display(df.head())
+display(df.shape)
+print("NOTE: Categorical Variables are too diverse would have created too sparse of a dataframe if I dummy coded them")
+
+
+# In[6]:
+
+#Drop NA
+#Drop all rows where iloc(0,3,4,5,6) rows have NA
+df2 = df[np.isfinite(df.iloc[:,(0,3,4,5,6)])]  #Get surviv
+# df.embarked.dropna().mode().values
+print(df.shape)
+print(df2.shape)
+
+
+# In[7]:
+
+#Remove Nulls in numeric columns
+df2 = df.iloc[:,(0,3,4,5,6,8,13)].dropna()
+
+#Count if nulls exist by column
+df2.isnull().sum(axis=0)
+
+
+# ## 3. Explore
+
+# In[8]:
+
+# display(plt.scatter(df['age'], df['fare']))
+df.hist()
+display(pl.show())
+
+#Plot Correlation Matrix
+corr = df.corr()
+
+#Generate mask for upper triangle
+mask = np.zeros_like(corr, dtype=np.bool)
+mask[np.triu_indices_from(mask)] = True
+
+# Set up the matplotlib figure
+f, ax = plt.subplots(figsize=(11, 9))
+
+# Generate a custom diverging colormap
+cmap = sns.diverging_palette(200, 10, as_cmap=True)
+
+# Draw the heatmap with the mask and correct aspect ratio
+sns.heatmap(corr, mask=mask, cmap=cmap, vmax=.3, annot = True,
+            square=True, xticklabels=True, yticklabels=True,
+            linewidths=.2, cbar_kws={"shrink": .5}, ax=ax)
+
+
+# In[9]:
+
+# barplot of survived rating grouped by cabin (True or False)
+pd.crosstab(df.survived, df.pclass.astype('category')).plot(kind='bar')
+plt.title('Survival by Cabin')
+plt.xlabel('survived')
+plt.ylabel('pclass')
+
+
+# ## 4. Split Train - CV - Test
+
+# In[10]:
+
+#Predictors are all numeric variables : age, sibsp, parch, pclass, fare, gender (1 = male, 0 = female)
+X = df2.iloc[:,1:].values.reshape(((df2.shape[0]),(df2.shape[1]-1)))
+y = df2.iloc[:,0].values.reshape((df2.shape[0],1))
+
+# X2 = df[c('parch', 'fare'].values.ravel
+# y2 = df['survived'].values.ravel
+
+display(X)
+display(type(y))
+
+
+# In[11]:
+
+#Create a train/test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, train_size = 0.7, random_state = 10)
+
+
+# Turn np.ndarray into pd.core.frame.DataFrame' (used in later models & plots)
+
+# In[12]:
+
+X_train_df = pd.DataFrame(X_train)
+X_train_df.columns = ['age', 'sibsp','parch', 'pclass', 'fare', 'Gender']
+print(X_train_df.head())
+
+y_train_df = pd.DataFrame(y_train)
+y_train_df.columns = ['survived']
+print(y_train_df.head())
+
+X_test_df = pd.DataFrame(X_test)
+X_test_df.columns = ['age', 'sibsp','parch', 'pclass', 'fare', 'Gender']
+print(X_test_df.head())
+
+y_test_df = pd.DataFrame(y_test)
+y_test_df.columns = ['survived']
+print(y_test_df.head())
+
+
+# In[13]:
+
+# print (X_test)
+# print (y_train[1:5])
+# print (y_test[1:5])
+# print (X_train.shape)
+# print (X_test.shabpe)
+# print (y_train.shape)
+# print (y_test.shape)
+
+# print (X_test_df)
+# print (y_train_df[1:5])
+# print (y_test_df[1:5])
+# print (X_train_df.shape)
+# print (X_test_df.shape)
+# print (y_train_df.shape)
+# print (y_test_df.shape)
+
+
+# # II. Statistical Exploration / Unsupervised Learning
+# 
+
+# ## 5.  Principle Component Analysis (PCA)
+
+# Load Packages for PCA & Kmeans
+
+# In[106]:
+
+#Use nuermic only dataframe
+print(X_train_df.head())
+print(X.shape)
+
+
+# Run a simple PCA using scikit-learn class. If I don't specify n_components or set it to None, it will use the maximum number of principal components:
+
+# In[108]:
+
+pca = PCA(n_components = None)
+pca.fit(X_train_df)
+
+
+# In[109]:
+
+pca.components_
+
+
+# look at explained variance of each principal component...
+
+# In[110]:
+
+pca.explained_variance_ratio_
+
+
+# ...and plot it
+
+# In[111]:
+
+plt.plot(range(len(pca.explained_variance_ratio_)), pca.explained_variance_ratio_)
+plt.scatter(range(len(pca.explained_variance_ratio_)), pca.explained_variance_ratio_)
+plt.xlabel("Principal Component Number")
+plt.ylabel("Percentage of Variance Explained")
+plt.title('% of Variance Explained by Principal Component')
+plt.show()
+
+
+# In[112]:
+
+#Show Cumulative Sum of Principal Components
+cumsum = np.cumsum(pca.explained_variance_ratio_)
+plt.plot(range(len(pca.explained_variance_ratio_)), cumsum)
+plt.scatter(range(len(pca.explained_variance_ratio_)), cumsum)
+plt.xlabel("Principal Component Number")
+plt.ylabel("Percentage of Variance Explained")
+plt.title('% of Variance Explained by Principal Component')
+plt.show()
+
+
+# CONCLUSION: If we're looking for an "elbow", it looks like 1 principal component would be enough to explain most of the variance in the data.  To actually get each row transformed into the principal component space, we can call `transform` on an already fit `PCA` object, or we can do both at once with `fit_transform`:
+
+# In[113]:
+
+pca2 = PCA(n_components = 2)
+X_trans = pca2.fit_transform(X_train_df)
+print(X_trans.shape)  #PC score vectors have length = 731
+print(X_trans)
+
+
+# In[114]:
+
+pd.DataFrame(pca2.components_, index = ['PC1','PC2'], columns = ['age', 'sibsp', 'parch', 'pclass', 'fare', 'gender'] )
+
+
+# Now define a function for plotting
+
+# In[22]:
+
+def plot_PCA(pca, X_train, print_row_labels, row_labels, col_labels, biplot=False, y_scale=(None, None), font_size=None):
+    # transform our data to PCA space
+    X_trans = pca.fit_transform(X)
+
+    # handle the scaling of the plot
+    xmin, xmax = min(X_trans[:, 0]), max(X_trans[:, 0])
+    if y_scale == (None, None):
+        ymin, ymax = min(X_trans[:, 1]), max(X_trans[:, 1])
+        xpad, ypad = 5, 5
+    else:
+        ymin, ymax = y_scale
+        xpad, ypad = 5, 1
+        
+    plt.xlim(xmin - xpad, xmax + xpad)
+    plt.ylim(ymin - ypad, ymax + ypad)
+
+    # plot words instead of points
+    if print_row_labels:
+        for x, y, label in zip(X_trans[:, 0], X_trans[:, 1], row_labels):
+            if font_size is None:
+                plt.text(x, y, label)
+            else:
+                plt.text(x, y, label, size=font_size)
+    else:
+        for x, y in zip(X_trans[:, 0], X_trans[:, 1]):
+            plt.scatter(x, y)
+    plt.xlabel("PC 1")
+    plt.ylabel("PC 2")
+
+    # if we want a biplot, get the loading and plot
+    # axes with labels
+    if biplot:
+        eigenvectors = pca.components_.transpose()
+        for i, col in enumerate(col_labels):
+            x, y = 10*eigenvectors[i][0], 10*eigenvectors[i][1]
+            plt.arrow(0, 0, x, y, color='r', width=0.002, head_width=0.05)
+            plt.text(x* 1.4, y * 1.4, col, color='r', ha='center', va='center')
+    
+    plt.show()
+    
+pca = PCA(n_components=2)
+#fare 
+plot_PCA(pca, X_train_df, True, X_train_df.fare, X_train_df.columns, biplot=True)
+
+
+# Combination of all the numerical variables are pushed to 1 Principal component, which is very strong. Other than 'age', no single variable is dominated by a strong trend or presence of consistent results. age and fare are the variables with the most influence.
+
+# In[23]:
+
+#Center & Scale to unit variance
+pca = PCA(n_components=4)
+X_scaled = scale(X_train_df, with_mean=True, with_std=True)  #
+plot_PCA(pca, X_scaled, True, X_train_df.fare, X_train_df.columns, biplot=True)
+
+
+# In[24]:
+
+pca = PCA(n_components=2)
+X_scaled = scale(X_train_df, with_mean=True, with_std=True)
+plot_PCA(pca, X_scaled, True, X_train_df.pclass, X_train_df.columns, biplot=True, y_scale=(-0.1, .1))
+
+
+# It seems that the age largely drives the first principal component and fare mostly drives the 2nd principal component.
+
+# ## t-SNE (t-Distributed Stochastic Neighbor Embedding)
+
+# Implement the t-Distributed Stochastic Neighbor Embedding (t-SNE) dimensionality reduction that's well suited for high-dimensional datasets (http://lvdmaaten.github.io/tsne/)
+
+# In[25]:
+
+#Plot the first 2 principal components, colored & labeled by true digit:
+
+xmin, xmax = min(X_trans[:, 0]), max(X_trans[:, 0])
+ymin, ymax = min(X_trans[:, 1]), max(X_trans[:, 1])
+xpad, ypad = 5, 5
+plt.xlim(xmin - xpad, xmax + xpad)
+plt.ylim(ymin - ypad, ymax + ypad)
+
+for x, y, label in zip(X_trans[:, 0], X_trans[:, 1], df.survived):
+    plt.text(x, y, label, size=8, color=plt.cm.Set1(label/10.))
+
+plt.xlabel("PC 1")
+plt.ylabel("PC 2")
+plt.title('biplot of the 2 largest Principle Components')
+print("PC1 = red/0, PC2 = blue/1")
+plt.show()
+
+
+# There's a scikit-learn class for running t-SNE.There's a scikit-learn class for running t-SNE.
+
+# In[26]:
+
+tsne = TSNE(n_components=2, verbose=True)
+X_trans = tsne.fit_transform(df2)
+
+
+# Make a plot of the the first 2 Principal Components and color / label by the true digit.
+
+# In[27]:
+
+xmin, xmax = min(X_trans[:, 0]), max(X_trans[:, 0])
+ymin, ymax = min(X_trans[:, 1]), max(X_trans[:, 1])
+xpad, ypad = 5, 5
+plt.xlim(xmin - xpad, xmax + xpad)
+plt.ylim(ymin - ypad, ymax + ypad)
+
+#for x, y, label in zip(digits_trans[labels==6, 0], digits_trans[labels==6, 1], labels[labels==6]):
+for x, y, label in zip(X_trans[:, 0], X_trans[:, 1], y_train_df.survived):
+    plt.text(x, y, label, size=8, color=plt.cm.Set1(label/10.))
+
+plt.xlabel("Component 1")
+plt.ylabel("Component 2")
+plt.title('biplot of the 2 largest Principle Components')
+
+plt.show()
+
+
+# CONCLUSION : Fascinatingly, the 1st (1s/red) and 2nd Principle Components (0s/blue) follow each other. This is to be expected as these two principal componenets capture most of the variance in the model. Note, the 1st Principal Component tends to cluster in a smaller area with itself that the 2nd Principal Component is unable to capture as well.
+
+# ## 6. Clustering
+
+# ### Hierarchical
+
+# Now I use some functions from scipy to run hierarchical clustering. 
+# 
+# 'Linkage' calculates the distances and linkages. 
+# 
+# 'Dendogram' displays the actual trees
+
+# In[28]:
+
+clusters_single = linkage(scale(X_train_df), method = 'single', metric = 'euclidean') #methods = single, complete, average, and ward
+
+
+# Single linkage tends to produce really unbalanced trees.  The dendograms shows that there's clusters of data.
+
+# In[29]:
+
+dendr = dendrogram(clusters_single, orientation='top', labels = list(df.gender))
+plt.title('Dendogram using Euclidean distance and Distance by gender')
+
+
+# In[30]:
+
+clusters_single = linkage(scale(X_train_df), method = 'complete', metric = 'euclidean') #methods = single, complete, average, and ward
+dendr = dendrogram(clusters_single, orientation='top', labels = list(df.pclass))
+plt.title('Dendogram using Euclidean distance and Distance by pclass')
+
+
+# Link provides great way to just look at your data for exploratory analysis. There's a lot of clustering algorithms, but we'll use HDBSCAN - a sort of desnity based algorithm, which clusters for dense regions. Unlike kmeans, it doesn't try to cluster every group, but extracts dense clusters and leaves sparse data as 'noise'. It's
+# 
+# http://nbviewer.jupyter.org/github/lmcinnes/hdbscan/blob/master/notebooks/Comparing%20Clustering%20Algorithms.ipynb 
+
+# # III. Stats Models + Supervised Learning
+
+# ## 7. Logistic Regression
+
+# Construct and fit the scikit-learn classifier, 
+# which should follow the workflow: construct, fit, predict  
+
+# In[35]:
+
+#Fit Regression Model
+logit = LogisticRegression(penalty = "l1", C=1e5)  #make logistic regression class
+logit.fit(X_train, y_train.ravel())  #Fit the training data into the 'logit' function.
+#From now on, logit() will be the model logistic regression model created from training data.
+
+
+# In[36]:
+
+#Get Predictions from the training data
+train_preds = logit.predict(X_train)  #Get predictions using just training data
+print(len(train_preds))
+print(train_preds[1:20])
+
+#Get predicted probabilities, so get an array for each passenger.
+#This code is doing a 1 vs. rest probability
+train_probs = logit.predict_proba(X_train)[:,1] #prob. survived = 1
+print(train_probs[1:50])
+
+#But since we want to predict, we need to use the model we created
+#from the training data, and predict new probability values  based on X_test data.
+#logit.predict_proba gives me the mean accuracy on the given test data & labels
+test_preds = logit.predict(X_test)
+test_probs = logit.predict_proba(X_test)[:,1]
+
+
+# # Evaluating the Classifier Performance
+
+# scikit learn confusion matrix fn takes the true and predicted labels.
+# We can also use the crosstab function in pandas, which has the advantage that it's clear which are rows and which are columns:
+
+# Training Confusion Matrix
+
+# In[117]:
+
+#Good at predicting species 1, but not so much for species 2 and 3.
+#Compute a simple cross-tabulation of two (or more) factors. By default
+# computes a frequency table of the factors
+#confusion_matrix(y_true = y_train, y_pred = training_preds))  #same as fn below
+print ("Train Confusion Matrix")
+pd.crosstab(index=np.ravel(y_train), columns=np.ravel(train_preds), rownames=['Survived'], colnames=['Predicted'])
+
+
+# In[116]:
+
+print ("Test Confusion Matrix")
+pd.crosstab(index=np.ravel(y_test), columns=np.ravel(test_preds), rownames=['Survived'], colnames=['Predicted'])
+
+
+# In[39]:
+
+#see percentage of how many I'm getting right. So, ~22.6% we're getting wrong with Log. Regression.
+print ('Percent correct on Training Data : {}'.format(accuracy_score(y_true=y_train, y_pred=train_preds)*100) )
+print ('Percent correct on Test Data : {}'.format(accuracy_score(y_true=y_test, y_pred=test_preds)*100) )
+
+
+# 
+# Below: 
+# 
+# The f1-score gives you the harmonic mean of precision and recall. 
+# 
+# The scores corresponding to every class will tell you the accuracy of the classifier in classifying the data points in that particular class compared to all other classes.
+# 
+# The support is the number of samples of the true response that lie in that class.
+
+# In[118]:
+
+#This gives out diff. metrics
+print (classification_report(y_true = y_train,
+                             y_pred = train_preds,
+                             labels =[0,1],
+                             target_names = ['class 0', 'class 1']))
+print ("precision (aka specificity = True Positive Rate) positive predictive value) is the fraction of retrieved instances that are relevant")
+print ("recall (aka sensitivity) is the fraction of relevant instances that are retrieved.")
+
+
+# Now, make a ROC curve
+
+# In[41]:
+
+# The roc_curve function returns three arrays. One for the false positive rate, one for the true positive rate, and one for the probability thresholds that correspond to each point:
+#Takes true and predicted values and returns fpr, tpr and thresholds
+#here, you can return a list of 3 things, and you assign those three things into 3 separate variables
+fpr, tpr, thresholds = roc_curve(y_true = y_test,
+                                 y_score = test_probs)
+
+
+# A ROC Curve is a graphical plot that illustrates the performance of a binary classifier system as its discrimnation threshold varies.
+# 
+# The ROC Curve for the logistic regression classifier traces 2 types of error as the data varies by threshold, provided by different values of the predictors. Actual threshold is not shown, 
+# 
+# The True Positive Rate is the sensitivity : the fraction of those who lived that are CORRECTLY identified as lived ('survived' = 1). This is aka 'sensitivity'
+# 
+# The False Postive Rate is 1-specificity : the fraction of those who died ('survived'=0) that are INCORRECTLY identified as lived. This is aka '1-specificity'. (NOTE: specificity is the fraction of those that died that are CORRECTLY identified as died ('survived'=0).)
+# 
+# The ROC curve looks at the True Positive Rate and False Positive Rate for the same threshold value. 
+# 
+# The ideal ROC curve hugs the top left corner, indivicating a high true positive rate and a low false positive rate. The dotted line represents the "no information" classifier, or the line that is assumed result of guessing 50/50 that someone survived or not. More deeply, the dotted line is what I would expect if the predictors are not associated with probability of living or dieing.
+
+# In[121]:
+
+pl.plot( thresholds, fpr)
+pl.xlabel('Threshold')
+pl.ylabel('False Positive Rate')
+pl.legend(["Fraction of errors (or misclassified) dead passengers"], loc = 7)
+pl.title('Scatterplot of Threshold by False Positive Rate')
+print ("""Threshold shows that our probability values go from near 1 to near 0 over all values for fpr and tpr
+The plot shows that when Threshold is near 0, then the classifier takes
+takes in nearly all classifications, thus making the FPR near 1.
+But when the Threshold is very high and it does not accept errors,
+then misclassification is nearly 0 and so is the FPR.""")
+
+
+# In[122]:
+
+# we want to draw the random baseline ROC line too
+fpr_rand = tpr_rand = np.linspace(0, 1, 10)
+
+print('AUC is {}'.format(roc_auc_score(y_train, train_probs)))   #get AUC curve w/ simple fn here.
+plt.plot(fpr, tpr)     #make auc curve
+plt.plot(fpr_rand, tpr_rand, linestyle='--')   #make random line
+pl.legend(["Logistic", "Flip a Coin"], loc = 4)
+plt.xlabel('False Positive Rate = (1 - Specificity)')
+plt.ylabel('True Positive Rate = Sensitivity')
+plt.title('ROC Curve - Log Regression on Training Set')
+plt.show()
+
+
+# Now, build a ROC curve on the Test Data
+
+# In[43]:
+
+#roc_curve() returns fpr, tpr, & thresholds
+#Increasing FPR, Increasing TPR, Decreasing thresholds 
+fpr, tpr, thresholds = roc_curve(y_true=y_test,  
+                                 y_score=test_probs) #target scores (ie - probability estimates) 
+
+
+# In[123]:
+
+# draw the random baseline ROC line too
+fpr_rand = tpr_rand = np.linspace(0, 1, 10)
+
+print('AUC is {}'.format(roc_auc_score(y_test, test_probs)))   #get AUC curve w/ simple fn here.
+plt.plot(fpr, tpr)
+pl.legend(["Logistic", "Flip a Coin"], loc = 4)
+plt.plot(fpr_rand, tpr_rand, linestyle='--')
+plt.title('ROC Curve - Logistic Regression on Test Set')
+plt.xlabel('False Positive Rate (1 - specificity)')
+plt.ylabel('True Positive Rate (sensitivity)')
+plt.show()
+
+
+# ## Cross Validation of Logistic Regression
+
+# NOTE: If re-run the train/test split will show variability in this estimate.
+# 
+# We can use the test set (which, in this case, should really be called a validation set) to choose the best value of the tuneable parameter 'C' of the logistic regression, which is the inverse of λ , the regularization strength. So depending on a range of 'penalties' I apply to the logistic regression that weakens larger coefficients to reduce overfitting.
+# 
+# Iterating over 'C' values can provide better future prediction model.
+
+# In[46]:
+
+# create equally space values beteen 10^-10 and 10^10
+c_vals = np.logspace(-10, 10, 20)
+
+aucs = []
+for c_val in c_vals:
+    logit = LogisticRegression(C=c_val)      # 'C' = inverse of regularization strength. The higher 'C' the lower the penalization
+    logit.fit(X_train, y_train.ravel())
+
+    test_probs_cv = logit.predict_proba(X_test)[:, 1]
+    aucs.append(roc_auc_score(y_test, test_probs_cv))
+    
+#Notice that AUC score from before matches the converged AUC scores at the end of this list.
+aucs
+
+
+# In[47]:
+
+plt.plot(np.log10(c_vals), aucs)
+plt.xlabel("C")
+plt.ylabel("Test AUC")
+plt.title('Iterations of Parameter C over AUC')
+
+plt.show()
+
+#NOTE: Where tuning parameter 'C' is roughly above -2, AUC value maximizes & plateaus.
+
+
+# Instead of using a train/test split, I can use cross-validation in scikit-learn to choose the tuneable parameters of a model.
+# 
+# First, I make a dictionary, where the key is the name of the parameter we want to tune (it has to match the name of the parameter in the model), and the values are the values we want to try:
+
+# In[48]:
+
+param_grid = {"C" : np.logspace(2,8,50)}   # start, stop, # of samples to generate
+param_grid
+
+
+# Then, we pass in the model we want to fit and the grid. The option 'n_jobs' allows to split the cross-validation over multiple cores of your computer, and refit tells it to fit the best performing model on the full dataset once it's done.
+# 
+# The parameters selected are those that maximize the score of the left out data, unless an explicit score is passed in which case it is used instead.
+
+# In[49]:
+
+cv = GridSearchCV(logit, param_grid, cv=10,
+                  n_jobs=1, refit=True, verbose=True)
+
+
+# In[50]:
+
+cv.fit(X_train, y_train.ravel())
+
+
+# In[51]:
+
+#Estimator that was chosen by the search. This estimator gave the highest
+#score (or smallest loss) on the test data. That happens because I set 
+# refit=True, baby!
+cv.best_estimator_  
+
+
+# In[52]:
+
+# This is the parameter setting that gave me the best results in the test data
+cv.best_params_  #Best C value is 100
+
+
+# Let's see what value of $\lambda$ corresponds to the best C:
+
+# In[53]:
+
+np.log10(1.0/cv.best_params_['C'])
+
+
+# In[54]:
+
+cv.best_score_   #Score of best_estimator on test data
+
+
+# In[148]:
+
+logit_cv = LogisticRegression(C= cv.best_score_)  
+logit_cv.fit(X_train, y_train.ravel())
+
+test_probs_cv = logit_cv.predict_proba(X_test)[:, 1]
+roc_auc_score(y_test, test_probs_cv)
+#Notice 0.85 is the same score as original logistic regression. So original fit did well on test data.
+
+# draw the random baseline ROC line too
+fpr_rand = tpr_rand = np.linspace(0, 1, 10)
+
+print('AUC for Cross Validated Logistic Regression {}'.format(roc_auc_score(y_test, test_probs_cv)))   #get AUC curve w/ simple fn here.
+print('AUC for non-Cross Validated Logistic Regression {}'.format(roc_auc_score(y_test, test_probs)))   #get AUC curve w/ simple fn here.
+print('Interestingly, cross-validating with the training set seemed to overfit the model slightly compared to performing a normal train/test Log Regression Model')
+plt.plot(fpr, tpr)
+plt.plot(fpr_rand, tpr_rand, linestyle='--')
+
+plt.title('ROC Curve - Cross Validated (Regularization (Penalty) Parameter) Logistic Regression ')
+plt.xlabel('False Positive Rate (1 - specificity)')
+plt.ylabel('True Positive Rate (sensitivity)')
+pl.legend(["Logistic", "Flip a Coin"], loc = 4)
+plt.show()
+
+
+# # 8. Tree-Based Models
+
+# # 8a. Decision Tree
+
+# Supervised Machine Learning is a formalized method for finding useful rules of thumb
+
+# Next, we'll train a scikit-learn classification decision tree using the "gini" splitting criterion.
+# http://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html
+# We could also have selected the "entropy" criterion. Here's the documentation for the scikit-learn regression decision tree, which splits based on MSE.
+# http://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeRegressor.html
+
+# In[56]:
+
+#Fit training predictors to training response variable
+dt = tree.DecisionTreeClassifier(criterion = "gini", min_samples_split = 10)  #gini or entropy
+dt.fit(X_train, y_train)
+
+#Predict probabilities of dead by each predictor value within the test set
+dt_test_probs = dt.predict_proba(X_test, 'linear')[:,1]    #other kernels : {‘linear’, ‘rbf’, ‘poly’, ‘sigmoid’, ‘precomputed’}   
+print(dt_test_probs)
+
+dt_test_pred = dt.predict(X_test)
+print(dt_test_pred[1:50])
+
+
+# Just Looking at Test Results
+
+# In[152]:
+
+#see percentage of how many I'm getting right. So, ~22.6% we're getting wrong with Log. Regression.
+print ('Percent correct on Test Data : {}'.format(accuracy_score(y_true=y_test, y_pred=dt_test_pred)*100) )
+pd.crosstab(index=np.ravel(y_test), columns=np.ravel(dt_test_pred), rownames=['Survived'], colnames=['Predicted'])
+
+
+# There's many ways to conrol a tree structure. Usually I just select 1
+# 1. max_depth : the # of layers deep to grow the tree (decision tree & random forest go as deep as possible by default, but gradient boosting goes 3 deep)
+# 2. min_samples_split : stops splitting if there are this many values left in a node. Default is 2 so it always to the end.
+# 3. min_samples_leaf : doesn't consider something a leaf node if it has more than this many values. Default is 1
+# 4. max_leaf_nodes : max # of final leaf nodes I want. Default is None, so we get as many leaf nodes as we can get
+
+# In[59]:
+
+#roc curve for binary classification task
+fpr_dt, tpr_dt, thresholds_dt = roc_curve(y_true = y_test, y_score = dt_test_probs)
+
+#Draw random baseline ROC line
+fpr_rand = tpr_rand = np.linspace(0,1,10)
+
+#Plot decision tree
+plt.plot(fpr, tpr)
+plt.plot(fpr_dt, tpr_dt)
+plt.plot(fpr_rand, tpr_rand, linestyle = '--')
+
+
+print(roc_auc_score(y_test, dt_test_probs))
+
+plt.xlabel('False Positive Rate = (1 - Specificity)')
+plt.ylabel('True Positive Rate = Sensitivity')
+plt.title('ROC Curve - Decision Tree ')
+pl.legend(["Logistic", "Tree", "Flip a Coin"], loc = 4)
+plt.show()
+
+
+# Unfortunately, scikit does not prune trees like R does.
+
+# ## 8b. Random Forest
+
+# n_estimators : controls for how many different trees I want to fit, ech one on a bootstrap sampled version of the df2
+# max_features : controls how many of the different predictors I want to consider splitting at each node
+# n_jobs : split training up over multiple cores to make it go faster
+# oob_score : tells rf to save the out-of-bag scores for each sample
+# 
+# 
+# 
+
+# In[60]:
+
+rf = RandomForestClassifier(n_estimators = 500, criterion = 'gini',
+                            max_features = 'sqrt', oob_score = True,
+                            n_jobs = 2, verbose = 0)
+
+rf.fit(X_train, y_train)
+
+rf_test_preds = rf.predict_proba(X_test)[:,1]
+rf_test_preds
+
+fpr_rf, tpr_rf, thresholds_rf = roc_curve(y_test, rf_test_preds)
+
+print ("logistic regresiion %s" % (roc_auc_score(y_test, test_probs_cv)))# print(roc_auc_score(y_bin, bin_preds))             #lo
+print("Decision Tree %s" % (roc_auc_score(y_test, dt_test_probs)))
+print("Random Forest %s" % (roc_auc_score(y_test, rf_test_preds)))
+
+plt.plot(fpr, tpr)         #logistic Regression
+plt.plot(fpr_dt, tpr_dt)   #decision tree
+plt.plot(fpr_rf, tpr_rf)   #random forest
+plt.plot(fpr_rand, tpr_rand, linestyle = '--')
+plt.xlabel('False Positive Rate = (1 - Specificity)')
+plt.ylabel('True Positive Rate = Sensitivity')
+plt.title('ROC Curve - Log v. DT v. RF')
+pl.legend(["Logistic", "Tree", "Random Forest", "Flip a Coin"], loc = 4)
+plt.show()
+
+
+# In[61]:
+
+rf.predict_proba(X_test)[1:20]
+
+
+# RF & Boosting gets variable importance caculated by adding up the decrease in error each time that predictor is used as a split
+
+# In[62]:
+
+rf_importances = rf.feature_importances_
+
+
+# In[63]:
+
+#we get the indices in the order that would make the imporances sorted
+sorted_indices = np.argsort(rf_importances)
+
+y_pos = range(len(rf_importances))
+plt.barh(y_pos, rf_importances[sorted_indices], align='center')
+plt.yticks(y_pos, X_train_df.columns[sorted_indices])
+plt.title('Variable Importance Plot')
+plt.show()
+
+
+# In[64]:
+
+sorted_indices
+
+
+# In[65]:
+
+#Get accuracy scores on out-of-bag examples
+print(rf.oob_score_)
+print(rf.oob_decision_function_)
+
+
+# In[66]:
+
+#With GridSearchCV(), we can scan over a tuneable parameter in RF to get the best values
+param_grid = {"n_estimators" : [1,10,100,500],       #Numb. of trees in the forest
+              "max_depth" : [1,2,5, None],           #max depth of a tree
+              "max_features" : ['sqrt', 'auto']}     #Numb. of features to consider when looking for best split
+cv = GridSearchCV(rf, param_grid, cv = 10, n_jobs = 4, refit = True)
+cv.fit(X_train, y_train.ravel())
+
+
+# In[67]:
+
+#Estimator chosen by the GridSearch - or estimator which gave the highest score (or smallest loss) on the test data)
+print(cv.best_estimator_)
+#Lowest MSE value on test set
+print(cv.best_score_)
+
+
+# In[68]:
+
+#Most important parameter is number of trees - but here you see. Notice you get mean & variance that aren't the lowest. 
+#It chooses best predictor, cuz lowest training likely overfit
+cv.grid_scores_
+
+
+# In[69]:
+
+rf_cv = RandomForestClassifier(n_estimators = 500, criterion = 'gini',
+                            max_features = 'sqrt', oob_score = True, max_depth = 5,
+                            n_jobs = 2, verbose = 0)
+rf_cv.fit(X_train, y_train)
+
+rf_cv_test_preds = rf_cv.predict_proba(X_test)[:,1]
+
+fpr_rf_cv, tpr_rf_cv, thresholds_rf_cv = roc_curve(y_test, rf_cv_test_preds)
+
+print ("logistic regresiion %s" % (roc_auc_score(y_test, test_probs_cv)))            
+print("Decision Tree %s" % (roc_auc_score(y_test, dt_test_probs)))
+print("Random Forest %s" % (roc_auc_score(y_test, rf_test_preds)))
+print ("RF_CV %s" % (roc_auc_score(y_test, rf_cv_test_preds)))
+
+plt.plot(fpr, tpr)         #logistic Regression
+plt.plot(fpr_dt, tpr_dt)   #decision tree
+plt.plot(fpr_rf, tpr_rf)   #random forest
+plt.plot(fpr_rf_cv, tpr_rf_cv)   #random forest Cross Validated
+plt.plot(fpr_rand, tpr_rand, linestyle = '--')
+plt.xlabel('False Positive Rate = (1 - Specificity)')
+plt.ylabel('True Positive Rate = Sensitivity')
+plt.title('ROC Curve - Log_cv v. DT v. RF v. RF_cv')
+pl.legend(["Logistic", "Tree", "Random Forest", "Random Forest_CV", "Extra Trees", "Flip a Coin"], loc = 4)
+
+plt.show()
+
+
+# ## 8c. Boosting
+
+# Gradient Boosting Classifier builds an additive model in a forward stage-wise fashion; it allows for the optimization of arbitrary differentiable loss functions.
+
+# Like rf,
+# n_estimator : controls # of trees to fit
+# learning_rate : controls how slowly we want the classifier to learn (smaller value of learning rate the more trees I'll need)
+# 
+# Boosting can often work better than random forest, because trees are grown sequentially, where each tree is grown using information from previously grown trees. Each tree is fit on a modified version of the original data. Boosting learns slowly by fitting a decision tree to the residuals from the model. It slowly improves the algorithm in areas where it does not perform well.
+# 
+# Gradient Boosting is pretty robust to overfitting too!
+
+# In[70]:
+
+gbt = GradientBoostingClassifier(learning_rate=0.1,    #shrinkage parameter controls rate of learning
+                                 n_estimators=200,     #Number of trees to build
+                                 max_depth=3)          #Number of splits within the tree
+
+
+# In[71]:
+
+gbt.fit(X_train, y_train.ravel())
+
+gbt_test_preds = gbt.predict_proba(X_test)[:,1]
+
+fpr_gbt, tpr_gbt, thresholds_gbt = roc_curve(y_test, gbt_test_preds)
+
+plt.plot(fpr, tpr)         #logistic Regression
+plt.plot(fpr_dt, tpr_dt)   #decision tree
+plt.plot(fpr_rf, tpr_rf)   #random forest
+plt.plot(fpr_rf_cv, tpr_rf_cv)   #random forest Cross Validated
+plt.plot(fpr_gbt, tpr_gbt) #Gradient Boosting
+plt.plot(fpr_rand, tpr_rand, linestyle = '--')
+plt.xlabel('False Positive Rate = (1 - Sensitivity)')
+plt.ylabel('True Positive Rate = Sensitivity')
+plt.title('ROC Curve - Log v. DT v. RF v. RF_cv v. Boosting')
+pl.legend(["Logistic", "Tree", "Random Forest", "Random Forest_cv", "Gradient Boosting", "Flip a Coin"], loc = 4)
+
+plt.show()
+
+print ("logistic regresiion %s" % (roc_auc_score(y_test, test_probs_cv)))# print(roc_auc_score(y_bin, bin_preds))       
+print("Decision Tree %s" % (roc_auc_score(y_test, dt_test_probs)))
+print("Random Forest %s" % (roc_auc_score(y_test, rf_test_preds)))
+print ("RF_CV %s" % (roc_auc_score(y_test, rf_cv_test_preds)))
+print("Boosting %s" % (roc_auc_score(y_test, gbt_test_preds)))
+
+
+# In[72]:
+
+#variable importance
+gbt_importances = gbt.feature_importances_
+sorted_indices = np.argsort(gbt_importances)
+
+y_pos = range(len(gbt_importances))
+plt.barh(y_pos, gbt_importances[sorted_indices], align='center')
+plt.yticks(y_pos, X_train_df.columns[sorted_indices])
+plt.show()
+
+
+# GBT has a staged_predict fn that shows what the prediction would make after each tree in the ensemble run
+
+# In[74]:
+
+num_trees = []
+train_errs = []
+for i, y_pred in enumerate(gbt.staged_predict(X_train)):
+    num_trees.append(i)
+    train_errs.append(zero_one_loss(y_train, y_pred))
+    
+test_errs = []
+for i, y_pred in enumerate(gbt.staged_predict(X_test)):
+    test_errs.append(zero_one_loss(y_test, y_pred))
+
+
+# In[75]:
+
+plt.plot(num_trees, train_errs)  #blue
+plt.plot(num_trees, test_errs)  #green
+plt.xlabel("Number of Trees")
+plt.ylabel("Error")
+pl.legend(["train error", "test error"], loc = 7)
+plt.show()
+
+print ("In the graph above, you can see the classic situation where as the model becomes more overfitted, the training error goes down until every point is correctly classified. In contrast, the test error (or prediction accuracy) plateaus / increases slightly as model complexity increases.")
+#Good example of changing parameters affects errors
+
+
+# ## 8d. Adding Extra Random Trees
+
+# Amazingly, just taking random predictors and random split thresholds rather than choosing the best one, does a better job, but here, it does worse. That's what the extra random trees classifer does. It's good to do this cuz it's very fast and I can be lazy about checking which predictors and which values to split on. Just take random ones!
+
+# In[76]:
+
+et = ExtraTreesClassifier(n_estimators=500, n_jobs=1)
+
+et.fit(X_train, y_train.ravel())
+
+et_test_preds = et.predict_proba(X_test)[:,1]
+
+fpr_et, tpr_et, thresholds_et = roc_curve(y_test, et_test_preds)
+
+
+# In[77]:
+
+pl.plot(fpr, tpr)         #logistic Regression
+pl.plot(fpr_dt, tpr_dt)   #decision tree
+pl.plot(fpr_rf, tpr_rf)   #random forest
+plt.plot(fpr_rf_cv, tpr_rf_cv)   #random forest Cross Validated
+pl.plot(fpr_gbt, tpr_gbt) #Gradient Boosting
+pl.plot(fpr_et, tpr_et)   #Extra Trees
+pl.plot(fpr_rand, tpr_rand, linestyle = '--')
+pl.xlabel('False Positive Rate = (1 - Specificity)')
+pl.ylabel('True Positive Rate = Sensitivity')
+pl.title('ROC Curve - Log v. DT v. RF v. GB v. ET')
+pl.legend(["Logistic", "Tree", "Random Forest","Random Forest_cv", "Gradient Boosting", "Extra Trees", "Flip a Coin"], loc = 4)
+pl.show()
+
+print ("Notice tradeoff of any increase in sensitivity is accompanied by a decrease in specificity")
+print ("logistic regression %s" % (roc_auc_score(y_test, test_probs_cv)))
+print("Decision Tree %s" % (roc_auc_score(y_test, dt_test_probs)))
+print("Random Forest %s" % (roc_auc_score(y_test, rf_test_preds)))
+print ("RF_CV %s" % (roc_auc_score(y_test, rf_cv_test_preds)))
+print("Boosting %s" % (roc_auc_score(y_test, gbt_test_preds)))
+print("Extra Trees %s" % (roc_auc_score(y_test, et_test_preds)))
+
+
+# # IV. Conclusion with Model Comparion & Prediction Results
+
+# The Random Forest Model that was searched over a grid of parameters appears to perform the best, but not by much. But I'll still check and see what areas the Random Forest model predicted.
+
+# In[78]:
+
+rf_cv_test_pred = rf_cv.predict(X_test)
+print(len(rf_cv_test_pred))
+print(len(X_test))
+print(type(rf_cv_test_pred))
+print(type(X_test))
+print(rf_cv_test_pred.shape)
+print(X_test.shape)
+
+
+# In[79]:
+
+#Concatenate Test Results
+y_preds_df = pd.DataFrame(rf_cv_test_pred, columns = ['RFPredictedSurvival'])
+y_preds_df
+FinalResult = pd.concat([X_test_df, y_test_df, y_preds_df], axis=1)
+FinalResult
+
+# #Create Column for ggplot
+# FinalResult['CorrectPred'] = np.where(FinalResult.loc[:,'survived'] == FinalResult.loc[:,'RFPredictedSurvival'],
+#                              'Correct Prediction','Wrong Prediction')
+
+#Survived = Yes
+YesSurv = FinalResult.loc[FinalResult['survived'] == 1]
+YesSurvGoodPred = YesSurv.loc[YesSurv['RFPredictedSurvival'] == 1]
+# YesSurvBadPred = YesSurv.loc[YesSurv['RFPredictedSurvival'] == 0]
+
+#Survived = No
+NoSurv = FinalResult.loc[FinalResult['survived'] == 0]
+NoSurvGoodPred = NoSurv.loc[NoSurv['RFPredictedSurvival'] == 0]
+# NoSurvBadPred = YesSurv.loc[YesSurv['RFPredictedSurvival'] == 1]
+
+
+# In[80]:
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(YesSurv.survived.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Survival")
+pl.hist(YesSurvGoodPred.survived.tolist(), bins = 50, color = 'green', alpha = 0.5, label = "Predicted Correct Survival")
+pl.legend(loc = 'upper right')
+pl.xlabel('Survived')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Survived')
+pl.show()
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(NoSurv.survived.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Death")
+pl.hist(NoSurvGoodPred.survived.tolist(), bins = 50, alpha = 0.5, color = 'green', label = "Predicted Correct Death")
+pl.legend(loc = 'upper right')
+pl.xlabel('Dead')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Death')
+pl.show()
+
+
+# In[81]:
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(YesSurv.age.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Survival by Age")
+pl.hist(YesSurvGoodPred.age.tolist(), bins = 50, alpha = 0.5, color = 'green',label = "Predicted Correct Survival by Age")
+pl.legend(loc = 'upper right')
+pl.xlabel('Age')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Survived by Age')
+pl.show()
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(NoSurv.age.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Death by Age")
+pl.hist(NoSurvGoodPred.age.tolist(), bins = 50, alpha = 0.5, color = 'green', label = "Predicted Correct Death by Age")
+
+pl.legend(loc = 'upper right')
+pl.xlabel('Age')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Death by Age')
+pl.show()
+
+
+# In[82]:
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(YesSurv.fare.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Survival")
+pl.hist(YesSurvGoodPred.fare.tolist(), bins = 50, color = 'green', alpha = 0.5, label = "Predicted Correct Survival")
+pl.legend(loc = 'upper right')
+pl.xlabel('Survived')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Survival by Fare')
+pl.show()
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(NoSurv.fare.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Death")
+pl.hist(NoSurvGoodPred.fare.tolist(), bins = 50, alpha = 0.5, color = 'green', label = "Predicted Correct Death")
+pl.legend(loc = 'upper right')
+pl.xlabel('Dead')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Dead by Fare')
+pl.show()
+
+
+# In[83]:
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(YesSurv.pclass.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Survival")
+pl.hist(YesSurvGoodPred.pclass.tolist(), bins = 50, color = 'green', alpha = 0.5, label = "Predicted Correct Survival")
+pl.legend(loc = 'upper right')
+pl.xlabel('Class')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Survival by Class')
+pl.show()
+
+print('Difference between Total And Predicted Correct are the number of incorrect values provided.')
+pl.hist(NoSurv.pclass.tolist(), bins = 50, alpha = 0.5, color = 'red', label = "Actual Death")
+pl.hist(NoSurvGoodPred.pclass.tolist(), bins = 50, alpha = 0.5, color = 'green', label = "Predicted Correct Death")
+pl.legend(loc = 'upper right')
+pl.xlabel('Class')
+pl.ylabel('Count')
+pl.title('Actual v. Predicted Dead by Class')
+pl.show()
+
+
+# CONCLUSION : Interestingly, results about my random forest prediction model can be viewed through the comparison of actual vs predicted survived or died. Being cautious of the y-axis values, the random fores tmodel predicts survival and death differently.
+# 
+# For predicting survival by looking at the age variables, it does not predict middle aged people well, but it does well with older and younger people. However, the model seems to predict death a bit better for middle aged people than it does for predicting survival.
+# 
+# In general, the model seemed to predict death better than survival, which may be reflective of there being more data points for the dead than the survived.
+# 
+# The model was quite poor at predicting survival for those who paid small fares and for those in the lower classes. Converseley, the model predicted higher classes and more expensive fare deaths better, especially for the dead more than the survived.
